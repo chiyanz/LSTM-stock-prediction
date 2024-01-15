@@ -27,7 +27,7 @@ class LSTMPredictor():
     self.raw_data = data
     self.inputs = input_labels
     self.outputs = output_labels
-    self.X, self.Y = self.organize_data(data, input_labels, output_labels)
+    self.data = self.organize_data(data, input_labels, output_labels)
 
 
   def organize_data(self, data, input_labels, output_labels):
@@ -36,15 +36,25 @@ class LSTMPredictor():
     '''
     sc = MinMaxScaler(feature_range=(0,1))
     data = sc.fit_transform(data)
+    X, y = data.iloc[input_labels], data.iloc[output_labels]
 
-    X, Y = data.iloc[input_labels], data.iloc[output_labels]
+    # LSTM model takes input in a 3D matrix in (batch_size, timestep, features)
+    # TODO: decide on timesteps 
+    X = X.reshape(len(X), 1, len(X.columns))
+
     # train test split
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     # train validation split
     X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=42) # 0.25 x 0.8 = 0.2
+    
 
-    # TODO: reshape data
-    return X, Y
+    data = {
+      'raw': [X, y],
+      'train': [X_train, y_train],
+      'test': [X_test, X_test],
+      'validate': [X_val, y_val]
+    }
+    return data
   
   
   def optimize_model(self):
@@ -61,11 +71,13 @@ class LSTMPredictor():
 
   def compile_model(self, units):
     '''
+
     params: units: the number of neurons
     '''
     print('Build model...')
     model = Sequential()
-    model.add(LSTM(units, return_sequences=False, input_shape=(word_vec_length, char_vec_length)))
+    model.add(LSTM(units, return_sequences=True, input_shape=(1, len(self.inputs))))
+    model.add(LSTM(units, input_shape=(1, len(self.inputs))))
     # prevent overfitting by adding a dropout layout
     model.add(Dropout(0.2))
     model.add(Dense(units=1))
@@ -75,9 +87,14 @@ class LSTMPredictor():
     # mean absolute percentage error to evaluate relative magnitude of error
     model.compile(loss='mse', optimizer='adam', metrics=[keras.metrics.MeanAbsolutePercentageError()])
 
-    # TODO: this compilation and result 
-    batch_size=1000
-    # model.fit(train_x, train_y, batch_size=batch_size, epochs=10, validation_data=(validate_x, validate_y))
+    # batch size = number of inputs to run before using back-propagation to improve weights
+    batch_size=16
+    model.fit(self.data['train'][0], self.data['train'][1], batch_size=batch_size, epochs=20, validation_data=(self.data['validate'][0], self.data['validate'][1]))
+
+
+  def driver(self):
+    hidden_nodes = self.optimize_model()
+    self.compile_model(hidden_nodes)
 
 
 
